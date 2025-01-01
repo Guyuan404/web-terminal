@@ -1,0 +1,373 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta http-equiv="Content-Security-Policy" content="default-src 'self' 'unsafe-inline' 'unsafe-eval' https: http:; media-src 'none';">
+    <title>Web终端</title>
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/xterm@4.19.0/css/xterm.css" />
+    <style>
+        body {
+            margin: 0;
+            padding: 0;
+            background-color: #1e1e1e;
+            display: flex;
+            flex-direction: column;
+            height: 100vh;
+        }
+        .header {
+            background-color: #2d2d2d;
+            color: white;
+            padding: 10px 20px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        .connection-form {
+            background-color: #2d2d2d;
+            padding: 20px;
+            display: flex;
+            gap: 10px;
+            align-items: center;
+        }
+        .form-group {
+            display: flex;
+            align-items: center;
+            gap: 5px;
+        }
+        .form-group label {
+            color: white;
+        }
+        .form-group input {
+            padding: 5px;
+            border-radius: 4px;
+            border: 1px solid #666;
+            background-color: #1e1e1e;
+            color: white;
+        }
+        .btn {
+            padding: 5px 10px;
+            border-radius: 4px;
+            border: none;
+            cursor: pointer;
+            background-color: #1a73e8;
+            color: white;
+        }
+        .btn-danger {
+            background-color: #dc3545;
+        }
+        #terminal {
+            flex: 1;
+            padding: 20px;
+        }
+        .terminal-container {
+            width: 100%;
+            height: 100%;
+            background-color: #000;
+            border-radius: 4px;
+        }
+        #connectionStatus {
+            color: #00ff00;
+            margin-left: 10px;
+        }
+        .debug-panel {
+            position: fixed;
+            right: 20px;
+            top: 80px;
+            width: 300px;
+            background-color: #2d2d2d;
+            border-radius: 4px;
+            padding: 10px;
+            color: #fff;
+            max-height: 400px;
+            overflow-y: auto;
+            z-index: 1000;
+        }
+        .debug-message {
+            margin: 5px 0;
+            font-family: monospace;
+            white-space: pre-wrap;
+            font-size: 12px;
+            border-bottom: 1px solid #444;
+            padding-bottom: 5px;
+        }
+        .test-button {
+            background-color: #28a745;
+            color: white;
+            border: none;
+            padding: 5px 10px;
+            border-radius: 4px;
+            cursor: pointer;
+            margin-left: 10px;
+        }
+        .navigation {
+            background-color: #2d2d2d;
+            padding: 10px 20px;
+            display: flex;
+            gap: 10px;
+            align-items: center;
+        }
+        .nav-btn {
+            padding: 5px 10px;
+            border-radius: 4px;
+            border: none;
+            cursor: pointer;
+            color: white;
+            text-decoration: none;
+            display: flex;
+            align-items: center;
+            gap: 5px;
+        }
+        .nav-btn i {
+            font-size: 16px;
+        }
+        .nav-btn.primary {
+            background-color: #1a73e8;
+        }
+        .nav-btn.warning {
+            background-color: #ffa000;
+        }
+        .nav-btn.danger {
+            background-color: #dc3545;
+        }
+        .connection-status {
+            margin-left: auto;
+            color: #fff;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+        .status-indicator {
+            width: 10px;
+            height: 10px;
+            border-radius: 50%;
+            background-color: #666;
+        }
+        .status-indicator.connected {
+            background-color: #4caf50;
+        }
+        .status-indicator.disconnected {
+            background-color: #f44336;
+        }
+    </style>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/5.15.4/css/all.min.css">
+</head>
+<body>
+    <div class="header">
+        <div>欢迎, {{ username }}</div>
+        <a href="{{ url_for('logout') }}" class="btn btn-danger">退出登录</a>
+    </div>
+    
+    <div class="navigation">
+        <a href="{{ url_for('hosts') }}" class="nav-btn primary">
+            <i class="fas fa-arrow-left"></i> 返回主机列表
+        </a>
+        <button onclick="reconnect()" class="nav-btn warning">
+            <i class="fas fa-sync"></i> 重新连接
+        </button>
+        <button onclick="disconnectSSH()" class="nav-btn danger">
+            <i class="fas fa-power-off"></i> 断开连接
+        </button>
+        <div class="connection-status">
+            <div class="status-indicator" id="statusIndicator"></div>
+            <span id="connectionStatus">未连接</span>
+        </div>
+    </div>
+
+    <div class="connection-form">
+        <div class="form-group">
+            <label>主机:</label>
+            <input type="text" id="hostname" placeholder="主机地址">
+        </div>
+        <div class="form-group">
+            <label>端口:</label>
+            <input type="number" id="port" value="22" style="width: 60px;">
+        </div>
+        <div class="form-group">
+            <label>用户名:</label>
+            <input type="text" id="username" placeholder="用户名">
+        </div>
+        <div class="form-group">
+            <label>密码:</label>
+            <input type="password" id="password" placeholder="密码">
+        </div>
+        <button class="btn" onclick="connectSSH()">连接</button>
+        <span id="connectionStatus"></span>
+    </div>
+    
+    <div class="debug-panel">
+        <h3>调试信息</h3>
+        <div id="debugMessages"></div>
+    </div>
+
+    <div id="terminal"></div>
+
+    <script src="https://cdn.jsdelivr.net/npm/xterm@4.19.0/lib/xterm.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/xterm-addon-fit@0.5.0/lib/xterm-addon-fit.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/socket.io-client@4.0.1/dist/socket.io.min.js"></script>
+    <script>
+        function addDebugMessage(message) {
+            const debugMessages = document.getElementById('debugMessages');
+            const messageElement = document.createElement('div');
+            messageElement.className = 'debug-message';
+            const timestamp = new Date().toLocaleTimeString();
+            messageElement.textContent = `[${timestamp}] ${message}`;
+            debugMessages.appendChild(messageElement);
+            debugMessages.scrollTop = debugMessages.scrollHeight;
+        }
+
+        const term = new Terminal({
+            cursorBlink: true,
+            theme: {
+                background: '#1e1e1e'
+            }
+        });
+        const fitAddon = new FitAddon.FitAddon();
+        term.loadAddon(fitAddon);
+        term.open(document.getElementById('terminal'));
+        fitAddon.fit();
+
+        const socket = io();
+        let connected = false;
+
+        // 页面加载时自动填充并连接
+        window.addEventListener('load', function() {
+            const params = new URLSearchParams(window.location.search);
+            const hostName = params.get('host_name');
+            
+            if (hostName) {
+                const savedHost = JSON.parse(localStorage.getItem('currentHost') || '{}');
+                if (savedHost.name === hostName) {
+                    addDebugMessage(`加载保存的主机信息: ${savedHost.hostname}`);
+                    // 自动填充表单
+                    document.getElementById('hostname').value = savedHost.hostname;
+                    document.getElementById('port').value = savedHost.port;
+                    document.getElementById('username').value = savedHost.username;
+                    document.getElementById('password').value = savedHost.password;
+                    
+                    // 自动连接
+                    addDebugMessage('准备自动连接...');
+                    setTimeout(connectSSH, 1000);  // 延迟1秒后连接
+                }
+            }
+        });
+
+        function connectSSH() {
+            const hostname = document.getElementById('hostname').value;
+            const port = document.getElementById('port').value;
+            const username = document.getElementById('username').value;
+            const password = document.getElementById('password').value;
+
+            if (!hostname || !username || !password) {
+                addDebugMessage('错误：请填写所有必要信息');
+                return;
+            }
+
+            addDebugMessage(`尝试连接到 ${hostname}:${port}`);
+            document.getElementById('connectionStatus').style.color = '#ffff00';
+            document.getElementById('connectionStatus').textContent = '正在连接...';
+
+            socket.emit('connect_ssh', {
+                hostname: hostname,
+                port: port,
+                username: username,
+                password: password
+            });
+        }
+
+        socket.on('connect', () => {
+            addDebugMessage('Socket连接已建立');
+            term.write('\r\n*** 终端就绪，请输入连接信息 ***\r\n');
+        });
+
+        socket.on('ssh_connected', () => {
+            connected = true;
+            addDebugMessage('SSH连接成功');
+            updateConnectionStatus('已连接');
+        });
+
+        socket.on('ssh_error', (data) => {
+            connected = false;
+            addDebugMessage(`SSH连接失败: ${data.error}`);
+            updateConnectionStatus('连接失败');
+            term.write('\r\n*** 连接失败: ' + data.error + ' ***\r\n');
+        });
+
+        socket.on('disconnect', () => {
+            connected = false;
+            addDebugMessage('连接已断开');
+            updateConnectionStatus('已断开');
+            term.write('\r\n*** 连接已断开 ***\r\n');
+        });
+
+        socket.on('debug_info', (data) => {
+            addDebugMessage(data.message);
+        });
+
+        socket.on('output', (data) => {
+            term.write(data.output);
+        });
+
+        term.onData(data => {
+            if (connected) {
+                socket.emit('data', data);
+            }
+        });
+
+        window.addEventListener('resize', () => {
+            fitAddon.fit();
+        });
+
+        function disconnectSSH() {
+            if (connected) {
+                socket.emit('disconnect_ssh');
+                connected = false;
+                addDebugMessage('主动断开连接');
+                updateConnectionStatus('已断开');
+            }
+        }
+
+        function reconnect() {
+            if (!connected) {
+                connectSSH();
+            } else {
+                addDebugMessage('已经处于连接状态');
+            }
+        }
+
+        function updateConnectionStatus(status) {
+            const statusIndicator = document.getElementById('statusIndicator');
+            const connectionStatus = document.getElementById('connectionStatus');
+            
+            connectionStatus.textContent = status;
+            if (status === '已连接') {
+                statusIndicator.classList.add('connected');
+                statusIndicator.classList.remove('disconnected');
+            } else {
+                statusIndicator.classList.add('disconnected');
+                statusIndicator.classList.remove('connected');
+            }
+        }
+
+        // 添加键盘快捷键支持
+        document.addEventListener('keydown', function(e) {
+            // Ctrl + R: 重新连接
+            if (e.ctrlKey && e.key === 'r') {
+                e.preventDefault();
+                reconnect();
+            }
+            // Ctrl + D: 断开连接
+            if (e.ctrlKey && e.key === 'd') {
+                e.preventDefault();
+                disconnectSSH();
+            }
+        });
+
+        // 添加页面离开提醒
+        window.addEventListener('beforeunload', function(e) {
+            if (connected) {
+                e.preventDefault();
+                e.returnValue = '确定要离开吗？这将断开当前连接。';
+            }
+        });
+    </script>
+</body>
+</html> 

@@ -1,0 +1,7 @@
+flask
+flask-socketio
+paramiko
+python-dotenv
+simple-websocket
+gunicorn
+eventlet 
